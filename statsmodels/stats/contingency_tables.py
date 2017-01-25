@@ -1803,7 +1803,7 @@ class MultipleResponseTable(object):
             raise NotImplementedError(msg)
 
     def _build_MRCV_result(self, p_value_overall, p_values_cellwise,
-                           method, independence_type):
+                           cellwise_signs, method, independence_type):
         """
         Build and initialize a MRCVTableNominalIndependenceResult instance.
 
@@ -1811,6 +1811,7 @@ class MultipleResponseTable(object):
         ----------
         p_value_overall : float
         p_values_cellwise : pd.DataFrame of floats
+        cellwise_signs: pd.DataFrame of floats
         method : str
         independence_type : {'MMI', 'SPMI'}
 
@@ -1821,6 +1822,7 @@ class MultipleResponseTable(object):
         result = MRCVTableNominalIndependenceResult()
         result.p_value_overall = p_value_overall
         result.p_values_cellwise = p_values_cellwise
+        result.cellwise_signs = cellwise_signs
         result.method = method
         if independence_type == "MMI":
             result.independence_type = "Marginal Mutual Independence"
@@ -1855,24 +1857,27 @@ class MultipleResponseTable(object):
         column_factor = self.column_factors[0]
         if rows_are_multiple_response and columns_are_multiple_response:
             spmi_test = self._test_SPMI_using_bonferroni
-            p_value_overall, p_values_cellwise = spmi_test(row_factor,
-                                                         column_factor)
+            results = spmi_test(row_factor, column_factor)
+            p_value_overall, p_values_cellwise, cellwise_signs = results
             result = self._build_MRCV_result(p_value_overall,
                                              p_values_cellwise,
+                                             cellwise_signs,
                                              "Bonferroni", "SPMI")
             return result
         elif columns_are_multiple_response:
-            p_value_overall, p_values_cellwise = mmi_test(row_factor,
-                                                        column_factor)
+            results = mmi_test(row_factor, column_factor)
+            p_value_overall, p_values_cellwise, cellwise_signs = results
             result = self._build_MRCV_result(p_value_overall,
                                              p_values_cellwise,
+                                             cellwise_signs,
                                              "Bonferroni", "MMI")
             return result
         elif rows_are_multiple_response:
-            p_value_overall, p_values_cellwise = mmi_test(column_factor,
-                                                        row_factor)
+            results = mmi_test(column_factor, row_factor)
+            p_value_overall, p_values_cellwise, cellwise_signs = results
             result = self._build_MRCV_result(p_value_overall,
                                              p_values_cellwise,
+                                             None,
                                              "Bonferroni", "MMI")
             return result
         else:
@@ -1908,17 +1913,20 @@ class MultipleResponseTable(object):
             p_value_overall = spmi_test(row_factor, column_factor)
             result = self._build_MRCV_result(p_value_overall,
                                              NOT_AVAILABLE,
+                                             NOT_AVAILABLE,
                                              "Rao-Scott", "SPMI")
             return result
         elif columns_are_multiple_response:
             p_value_overall = mmi_test(row_factor, column_factor)
             result = self._build_MRCV_result(p_value_overall,
                                              NOT_AVAILABLE,
+                                             NOT_AVAILABLE,
                                              "Rao-Scott", "MMI")
             return result
         elif rows_are_multiple_response:
             p_value_overall = mmi_test(column_factor, row_factor)
             result = self._build_MRCV_result(p_value_overall,
+                                             NOT_AVAILABLE,
                                              NOT_AVAILABLE,
                                              "Rao-Scott", "MMI")
             return result
@@ -2104,7 +2112,11 @@ class MultipleResponseTable(object):
         single_response_column = joint_dataframe.single_response_level
         item_response_pieces = {}
         for c in multiple_response_factor.labels:
-            multiple_response_column = joint_dataframe.loc[:, c]
+            column_position = joint_dataframe.columns.get_loc(c)
+            # if factors have been combined, c can be a tuple.
+            # pandas assumes tuples passed into .loc
+            # are looking for a multi-index pair.
+            multiple_response_column = joint_dataframe.iloc[:, column_position]
             crosstab = pd.crosstab(single_response_column,
                                    multiple_response_column)
             item_response_pieces[c] = crosstab
@@ -2155,12 +2167,25 @@ class MultipleResponseTable(object):
         """
         item_response_table = cls._item_response_table_for_MMI(srcv, mrcv)
         mmi_chi_squared_by_cell = pd.Series(index=mrcv.labels)
+        cell_signs = pd.DataFrame(index=srcv.labels, columns=mrcv.labels)
         for factor_level in item_response_table.columns.levels[0]:
             crosstab = item_response_table.loc[:, factor_level]
+            # reindex in case one option is never selected
+            crosstab = crosstab.reindex(columns=[0,1])
             chi2_results = chi2_contingency(crosstab, correction=False)
-            chi_squared_stat, _, _, _ = chi2_results
+            chi_squared_stat, _, _, expected_counts = chi2_results
+            # end users may wish to know which cells in the final crosstab
+            # contribute to the final result
+            # this tracks whether each cell in each single-vs-multiple-level
+            # comparision was selected more or less often than
+            # independence would suggest, giving an indicator of
+            # directionality of the cells' contribution
+            standardized_residuals = (((crosstab - expected_counts))
+                                      / (expected_counts ** .5))
+            overselected = np.sign(standardized_residuals.iloc[:, 1])
+            cell_signs.loc[:, factor_level] = overselected
             mmi_chi_squared_by_cell.loc[factor_level] = chi_squared_stat
-        return mmi_chi_squared_by_cell
+        return mmi_chi_squared_by_cell, cell_signs
 
     @staticmethod
     def _build_item_response_table_for_SPMI(rows_factor, columns_factor):
@@ -2200,6 +2225,7 @@ class MultipleResponseTable(object):
         rows_levels = rows_factor.labels
         columns_levels = columns_factor.labels
         row_crosstabs = OrderedDict()
+
         for i, row_name in enumerate(rows_levels):
             column_crosstabs = OrderedDict()
             for j, col_name in enumerate(columns_levels):
@@ -2286,9 +2312,20 @@ class MultipleResponseTable(object):
             # around 250, which sort of makes sense if the top left pairing
             # always co-occurs. But instead of making that extreme
             # assumption, we'll just decline to calculate.
-            return pd.DataFrame(np.nan,
-                                index=rows_levels,
+            import warnings
+            warnings.warn("The SPMI item-response table had degenerate shape, "
+                 "probably because certain factor levels lacked variance, "
+                 "i.e. were 1 for all observations or 0 for "
+                 "all observations. Statsmodels declines "
+                 "to calculate test for independence in this case "
+                 "because doing so would require substantial assumptions "
+                 "about the unobserved cases.")
+            chis = pd.DataFrame(np.nan, index=rows_levels,
                                 columns=columns_levels)
+            signs = pd.DataFrame(np.nan, index=rows_levels,
+                                 columns=columns_levels)
+            return chis, signs
+        cell_signs = pd.DataFrame(index=rows_levels, columns=columns_levels)
         chis_spmi = pd.DataFrame(index=rows_levels, columns=columns_levels)
         for row_level in rows_levels:
             for column_level in columns_levels:
@@ -2296,9 +2333,23 @@ class MultipleResponseTable(object):
                 crosstab = item_response_table.loc[location]
                 crosstab = _shift_zeros(crosstab)
                 chi2_results = chi2_contingency(crosstab, correction=False)
-                chi_squared_statistic, _, _, _ = chi2_results
-                chis_spmi.loc[location] = chi_squared_statistic
-        return chis_spmi
+                chi_squared_stat, _, _, expected_counts = chi2_results
+                # end users may wish to know which cells in the final crosstab
+                # contribute to the final result
+                # this tracks whether each cell in each single-vs-multiple-level
+                # comparision was selected more or less often than
+                # independence would suggest, giving an indicator of
+                # directionality of the cells' contribution
+                standardized_residuals = (((crosstab - expected_counts))
+                                          / (expected_counts ** .5))
+                # the compiled table shows the mutual selctions
+                # i.e. 'yes to both' so we'll say that a
+                # cell is over-represented vs. independence if
+                # the mutual agrement has a positive residual
+                overselected = np.sign(standardized_residuals.loc[1,1])
+                cell_signs.loc[location] = overselected
+                chis_spmi.loc[location] = chi_squared_stat
+        return chis_spmi, cell_signs
 
     def _test_SPMI_using_bonferroni(self, row_factor, column_factor):
         """
@@ -2326,8 +2377,9 @@ class MultipleResponseTable(object):
             overall table, plus a dataframe including cellwise p values
             assessing independence between each pairing of factor levels.
         """
-        observed = self._chi2s_for_SPMI_item_response_table(row_factor,
-                                                            column_factor)
+        calc_table_chis = self._chi2s_for_SPMI_item_response_table
+        observed, cell_signs = calc_table_chis(row_factor,
+                                               column_factor)
         chi2_survival_with_1_dof = partial(chi2.sf, df=1)
         p_value_ij = observed.applymap(chi2_survival_with_1_dof)
         p_value_min = p_value_ij.min().min()
@@ -2339,7 +2391,9 @@ class MultipleResponseTable(object):
         pairwise_bonferroni_p_values = ((p_value_ij *
                                         bonferroni_correction_factor)
                                         .applymap(cap))
-        return p_value_overall_bonferroni, pairwise_bonferroni_p_values
+        results = (p_value_overall_bonferroni,
+                   pairwise_bonferroni_p_values, cell_signs)
+        return results
 
     def _test_for_SPMI_using_bootstrap(self, row_factor, column_factor,
                                        verbose=False):
@@ -2540,14 +2594,17 @@ class MultipleResponseTable(object):
 
         Return
         ------
-        float, pd.DataFrame
-            Tuple containing a p value for independence for the
-            overall table, plus a dataframe including cellwise p values
-            assessing independence between each pairing of factor levels.
+        float, pd.DataFrame, pd.DataFrame
+            Tuple containing 1) a p value for independence for the
+            overall table 2) a dataframe including cellwise p values
+            assessing independence between each pairing of factor levels
+            and 3) +1/-1 signs indicating whether each
+            cell contributed positively or negatively to
+            the p-value for the category it's in.
         """
         calc_chis = self._chi2s_for_MMI_item_response_table
-        mmi_pairwise_chis = calc_chis(single_response_factor,
-                                      multiple_response_factor)
+        mmi_pairwise_chis, cell_signs = calc_chis(single_response_factor,
+                                                  multiple_response_factor)
         c = len(multiple_response_factor.labels)
         r = len(single_response_factor.labels)
 
@@ -2562,8 +2619,10 @@ class MultipleResponseTable(object):
                                        p_value_min)
         pairwise_bonferroni_p_values = ((p_value_ij *
                                          bonferroni_correction_factor)
-                                        .apply( cap))
-        return p_value_overall_bonferroni, pairwise_bonferroni_p_values
+                                        .apply(cap))
+        results = (p_value_overall_bonferroni,
+                   pairwise_bonferroni_p_values, cell_signs)
+        return results
 
     def _test_MMI_using_rao_scott_2(self,
                                     single_response_factor,
@@ -2701,7 +2760,7 @@ class MultipleResponseTable(object):
 
 
 def _build_joint_dataframe(left_data, right_data, l_suffix, r_suffix):
-    joint_dataframe = pd.merge(right_data, left_data,
+    joint_dataframe = pd.merge(left_data, right_data,
                                how="inner",
                                on='observation_id',
                                suffixes=(l_suffix, r_suffix))
@@ -2972,7 +3031,9 @@ class Factor(object):
             top_level = top_levels[top_label]
             bottom_level = bottom_levels[bottom_label]
             flat_columns.append((top_level, bottom_level))
-        combined_data.columns = flat_columns
+        # columns come out as tuples...that causes problems for some of
+        # pandas indexing methods like .loc
+        combined_data.columns = [asunicode(c, 'utf8') for c in flat_columns]
         template = "Combination of ({superior}) and ({subordinate})"
         merged_factor_name = template.format(superior=superior.name,
                                              subordinate=subordinate.name)
