@@ -2466,7 +2466,7 @@ class MultipleResponseTable(object):
             p_value_b_min.append(p_value_min)
             p_value_b_prod.append(p_value_prod)
 
-        observed = calc_chis(q1, q2)
+        observed, _ = calc_chis(q1, q2)
         observed_X_sq_S = observed.sum().sum()
         p_value_ij = observed.applymap(chi2_survival_with_1_dof)
         p_value_min = p_value_ij.min().min()
@@ -2515,7 +2515,7 @@ class MultipleResponseTable(object):
                   Journal of the American Statistical Association
                   76, 221-230, 1981.
         """
-        observed = self._chi2s_for_SPMI_item_response_table(row_factor,
+        observed, _ = self._chi2s_for_SPMI_item_response_table(row_factor,
                                                             column_factor)
         W = row_factor.data
         Y = column_factor.data
@@ -2575,7 +2575,7 @@ class MultipleResponseTable(object):
         """
         Test for MMI between single and multiple response vars w/ Bonferroni
 
-        MMI stands for "marginal mutual independence".
+        MMI stands for "multiple marginal independence".
 
         First calculate a full item response table comparing the single
         response variable versus each level of the multiple response
@@ -2629,7 +2629,7 @@ class MultipleResponseTable(object):
         """
         Test for MMI between single and multiple response vars w/ Rao Scott
 
-        MMI stands for "marginal mutual independence".
+        MMI stands for "multiple marginal independence".
 
         See [1]_ for information about the second order
         Rao Scott correction.
@@ -2748,7 +2748,7 @@ class MultipleResponseTable(object):
         Di_HGVGH_eigen = np.real(eigenvalues)
         sum_Di_HGVGH_eigen_sq = (Di_HGVGH_eigen ** 2).sum()
         calculate_chis = self._chi2s_for_MMI_item_response_table
-        observed = calculate_chis(single_response_factor,
+        observed, _ = calculate_chis(single_response_factor,
                                   multiple_response_factor)
         observed_X_sq = observed.sum()
         rows_by_columns = ((r - 1) * c)
