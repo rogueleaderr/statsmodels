@@ -2340,15 +2340,15 @@ class MultipleResponseTable(object):
                 # comparision was selected more or less often than
                 # independence would suggest, giving an indicator of
                 # directionality of the cells' contribution
-                standardized_residuals = (((crosstab - expected_counts))
+                standardized_residuals = ((crosstab - expected_counts)
                                           / (expected_counts ** .5))
                 # the compiled table shows the mutual selctions
                 # i.e. 'yes to both' so we'll say that a
                 # cell is over-represented vs. independence if
                 # the mutual agrement has a positive residual
-                overselected = np.sign(standardized_residuals.loc[1,1])
-                cell_signs.loc[location] = overselected
-                chis_spmi.loc[location] = chi_squared_stat
+                overselected = np.sign(standardized_residuals.iat[1, 1])
+                cell_signs.at[location] = overselected
+                chis_spmi.at[location] = chi_squared_stat
         return chis_spmi, cell_signs
 
     def _test_SPMI_using_bonferroni(self, row_factor, column_factor):
@@ -2456,7 +2456,8 @@ class MultipleResponseTable(object):
             sample_columns_factor = Factor(q2_sample, columns_factor_name,
                                            orientation="wide",
                                            multiple_response=True)
-            stat_star = calc_chis(sample_rows_factor, sample_columns_factor)
+            stat_star, _ = calc_chis(sample_rows_factor,
+                                     sample_columns_factor)
             X_sq_S = stat_star.sum().sum()
             X_sq_S_star.append(X_sq_S)
             X_sq_S_ij_star.append(stat_star)
@@ -2466,7 +2467,14 @@ class MultipleResponseTable(object):
             p_value_b_min.append(p_value_min)
             p_value_b_prod.append(p_value_prod)
 
-        observed, _ = calc_chis(q1, q2)
+        observed_rows_factor = Factor(q1, rows_factor_name,
+                                    orientation="wide",
+                                    multiple_response=True)
+        observed_columns_factor = Factor(q2, columns_factor_name,
+                                       orientation="wide",
+                                       multiple_response=True)
+        observed, _ = calc_chis(observed_rows_factor,
+                                observed_columns_factor)
         observed_X_sq_S = observed.sum().sum()
         p_value_ij = observed.applymap(chi2_survival_with_1_dof)
         p_value_min = p_value_ij.min().min()
@@ -2476,6 +2484,13 @@ class MultipleResponseTable(object):
 
         p_value_boot_min_overall = np.mean(p_value_b_min <= p_value_min)
         print(p_value_boot_min_overall)
+        start = pd.DataFrame(0,
+                             index=p_value_ij.index,
+                             columns=p_value_ij.columns)
+        for frame in X_sq_S_ij_star:
+            start += frame
+        average_p_ij = start / len(X_sq_S_ij_star)
+        print(average_p_ij)
 
     def _test_SPMI_using_rao_scott_2(self, row_factor,
                                      column_factor):
