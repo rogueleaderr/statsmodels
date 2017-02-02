@@ -142,9 +142,11 @@ class MRCVTableNominalIndependenceResult(_Bunch):
         template = ("Multiple Response Contingency Table "
                     "Independence Result:\n"
                     "table p value: {p_value_overall}\n"
-                    "cellwise p values: {p_values_cellwise}")
+                    "cellwise p values: {p_values_cellwise}\n"
+                    "cellwise significance signs: {cellwise_signs}")
         output = template.format(p_value_overall=self.p_value_overall,
-                                 p_values_cellwise=self.p_values_cellwise)
+                                 p_values_cellwise=self.p_values_cellwise,
+                                 cellwise_signs=self.cellwise_signs)
         return output
 
 
@@ -1877,7 +1879,7 @@ class MultipleResponseTable(object):
             p_value_overall, p_values_cellwise, cellwise_signs = results
             result = self._build_MRCV_result(p_value_overall,
                                              p_values_cellwise,
-                                             None,
+                                             cellwise_signs,
                                              "Bonferroni", "MMI")
             return result
         else:
@@ -2851,6 +2853,7 @@ class Factor(object):
                  orientation="wide", multiple_response=None):
         self.orientation = orientation
         self.name = name
+
         if (dataframe.index.name is None and
                     "observation_id" not in dataframe.columns):
             dataframe.index.name = "observation_id"
