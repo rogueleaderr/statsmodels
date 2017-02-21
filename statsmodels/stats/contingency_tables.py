@@ -1564,6 +1564,10 @@ class MultipleResponseTable(object):
     column_factors : a Factor instance or list of Factors
         The factor or factors containing data that you intend to have on the
         columns, (i.e. the y axis) of the contingency table.
+    deduplication_padding : str
+        Our tables don't deal well with duplicated index / column labels so we automatically
+        add a padding character / string to duplicated names to make them unique. Defaults to
+        ' ('prime') character but you can pass any character to use instead.
 
     Attributes
     ----------
@@ -1627,9 +1631,10 @@ class MultipleResponseTable(object):
            29(4):1285–1316, 2000. [p149]
     """
 
-    def __init__(self, row_factors, column_factors):
+    def __init__(self, row_factors, column_factors, deduplication_padding):
         validate = self._extract_and_validate_factors
-        column_factor, row_factor = validate(column_factors, row_factors)
+        column_factor, row_factor = validate(column_factors, row_factors,
+                                             deduplication_padding=deduplication_padding)
         self.row_factors = [row_factor,]
         self.column_factors = [column_factor,]
         self.table = self.table_from_factors(row_factors, column_factors)
@@ -1937,7 +1942,7 @@ class MultipleResponseTable(object):
             return single_response_table.test_nominal_association()
 
     @classmethod
-    def _extract_and_validate_factors(cls, column_factors, row_factors):
+    def _extract_and_validate_factors(cls, column_factors, row_factors, deduplication_padding="'"):
         """
         Validate provided Factors and plunk instances out of lists.
 
@@ -1985,7 +1990,7 @@ class MultipleResponseTable(object):
             # deduplication needs to happen before pivoting
             # for a corner case where a narrow factor with duplicate
             # names won't get pivoted correctly to wide
-            cls._deduplicate_level_names(extracted)
+            cls._deduplicate_level_names(extracted, deduplication_padding)
             for i, factor in enumerate(extracted):
                 if (factor.orientation == "narrow" and
                         factor.multiple_response):
@@ -1999,7 +2004,7 @@ class MultipleResponseTable(object):
 
 
     @classmethod
-    def _deduplicate_level_names(cls, factors):
+    def _deduplicate_level_names(cls, factors, deduplication_padding):
         """
         Make sure that all of the factor level names are unique.
 
@@ -2018,7 +2023,7 @@ class MultipleResponseTable(object):
                 deduplicated_levels = []
                 for level in factor.labels:
                     while level in taken_names:
-                        level += "'"
+                        level += deduplication_padding
                     taken_names.add(level)
                     deduplicated_levels.append(level)
                 factor_levels = factor.data.columns.values
@@ -2031,7 +2036,7 @@ class MultipleResponseTable(object):
                 for name in taken_names:
                     old_name = name
                     while name in taken_names:
-                        name += "'"
+                        name += deduplication_padding
                     renames[old_name] = name
                 if renames:
                     factor.data.replace({'factor_level': renames},
@@ -2047,7 +2052,7 @@ class MultipleResponseTable(object):
                 duplicated = factor.data.duplicated(subset=subset)
                 while duplicated.any():
                     duplicates = factor.data[duplicated].copy()
-                    replacements = duplicates.factor_level.astype(str) + "'"
+                    replacements = duplicates.factor_level.astype(str) + deduplication_padding
                     duplicates.loc[:, 'factor_level'] = replacements
                     factor.data.update(duplicates)
                     duplicated = factor.data.duplicated(subset=subset)
@@ -2976,12 +2981,7 @@ class Factor(object):
         if self.orientation != "narrow":
             raise NotImplementedError("Factor is already wide")
         narrow_df = self.data
-        wide_df = pd.pivot_table(narrow_df,
-                                 values='value',
-                                 fill_value=0,
-                                 index=['observation_id'],
-                                 columns=['factor_level'],
-                                 aggfunc=np.sum).sort_index()
+        wide_df = pd.get_dummies(narrow_df).sort_index()
         wide_factor = Factor(wide_df, self.name, orientation="wide",
                              multiple_response=self.multiple_response)
         return wide_factor
