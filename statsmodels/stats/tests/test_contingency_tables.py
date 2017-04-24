@@ -592,11 +592,12 @@ def test_calculate_pairwise_chi2s_for_MMI_item_response_table():
     multiple_response_table = ctab.MultipleResponseTable([rows_factor, ],
                                                          [columns_factor])
     calculate = multiple_response_table._chi2s_for_MMI_item_response_table
-    pairwise_chis = calculate(rows_factor, columns_factor)
+    pairwise_chis, cell_signs = calculate(rows_factor, columns_factor)
     r_results_fname = "srcv_r_all_chis_result.csv"
     r_results_fpath = os.path.join(results_dirpath, r_results_fname)
     results_from_r = pd.Series.from_csv(r_results_fpath)
     assert_allclose(pairwise_chis, results_from_r)
+    np.testing.assert_(cell_signs.iat[0,0] == -1)
 
 
 def test_multiple_mutual_independence_false_using_bonferroni():
@@ -609,8 +610,8 @@ def test_multiple_mutual_independence_false_using_bonferroni():
     multiple_response_table = ctab.MultipleResponseTable([rows_factor, ],
                                                          [columns_factor])
     bonferroni_test = multiple_response_table._test_MMI_using_bonferroni
-    p_value_overall, p_values_cellwise = bonferroni_test(rows_factor,
-                                                       columns_factor)
+    results = bonferroni_test(rows_factor, columns_factor)
+    p_value_overall, p_values_cellwise, cellwise_signs = results
     fpath = os.path.join(results_dirpath, "srcv_r_bonferroni.csv")
     r_result = pd.DataFrame.from_csv(fpath)
     p_value_overall_r = r_result["p.value.bon"]
@@ -647,12 +648,14 @@ def test_calculate_pairwise_chi2s_for_SPMI_item_response_table():
     multiple_response_table = ctab.MultipleResponseTable([rows_factor, ],
                                                          [columns_factor])
     calculate = multiple_response_table._chi2s_for_SPMI_item_response_table
-    spmi_pairwise_chis_python = calculate(rows_factor, columns_factor)
+    results = calculate(rows_factor, columns_factor)
+    spmi_pairwise_chis_python, cellwise_signs = results
     r_results_fname = "spmi_r_pairwise_chis_result.csv"
     r_results_fpath = os.path.join(results_dirpath, r_results_fname)
     spmi_pairwise_chis_r = pd.DataFrame.from_csv(r_results_fpath)
     assert_allclose(spmi_pairwise_chis_r.values.astype(float),
                     spmi_pairwise_chis_python.values.astype(float))
+    np.testing.assert_(cellwise_signs.iat[0, 2] == 1)
 
 
 def test_SPMI_false_using_bonferroni():
@@ -666,7 +669,7 @@ def test_SPMI_false_using_bonferroni():
                                                          [columns_factor])
     test = multiple_response_table._test_SPMI_using_bonferroni
     result = test(rows_factor, columns_factor)
-    p_value_overall_bonferroni, cellwise_p_bonferroni_python = result
+    p_value_overall_bonferroni, cellwise_p_bonferroni_python, _ = result
     fpath = os.path.join(results_dirpath, "spmi_r_bonferroni.csv")
     spmi_bonferroni_r = pd.DataFrame.from_csv(fpath)
 
@@ -732,7 +735,7 @@ def test_multiple_mutual_independence_true():
     np.testing.assert_(rao_p_value >= 0.05)
     bonferroni_test = multiple_response_table._test_MMI_using_bonferroni
     bonferroni_p_value_overall, \
-    bonferroni_cell_p_values = bonferroni_test(srcv, mrcv)
+    bonferroni_cell_p_values, _ = bonferroni_test(srcv, mrcv)
     np.testing.assert_(bonferroni_p_value_overall >= 0.05)
     np.testing.assert_(np.all(bonferroni_cell_p_values >= 0.05))
 
@@ -757,7 +760,7 @@ def test_simultaneous_pairwise_mutual_independence_true():
     np.testing.assert_(rao_p_value >= 0.05)
     bonferroni_test = multiple_response_table._test_SPMI_using_bonferroni
     result = bonferroni_test(mrcv_1, mrcv_2)
-    bonferroni_p_value_overall, bonferroni_cell_p_values = result
+    bonferroni_p_value_overall, bonferroni_cell_p_values, _ = result
     np.testing.assert_(bonferroni_p_value_overall >= 0.05)
     np.testing.assert_(np.all(bonferroni_cell_p_values >= 0.05))
 
