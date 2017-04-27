@@ -2214,7 +2214,7 @@ class MultipleResponseTable(object):
                           "substantial assumptions about the unobserved cases.")
             chis = pd.DataFrame(np.nan, index=rows_levels,
                                 columns=columns_levels)
-            return chis
+            return chis, cell_signs
 
         for factor_level in columns_levels:
             crosstab = item_response_table.loc[:, factor_level]
@@ -2632,7 +2632,7 @@ class MultipleResponseTable(object):
                   Journal of the American Statistical Association
                   76, 221-230, 1981.
         """
-        observed = self._chi2s_for_SPMI_item_response_table(row_factor,
+        observed, _ = self._chi2s_for_SPMI_item_response_table(row_factor,
                                                             column_factor,
                                                 shift_zeros=self.shift_zeros)
         W = row_factor.data
@@ -2876,7 +2876,7 @@ class MultipleResponseTable(object):
         Di_HGVGH_eigen = np.real(eigenvalues)
         sum_Di_HGVGH_eigen_sq = (Di_HGVGH_eigen ** 2).sum()
         calculate_chis = self._chi2s_for_MMI_item_response_table
-        observed = calculate_chis(single_response_factor,
+        observed, _ = calculate_chis(single_response_factor,
                                   multiple_response_factor,
                                   shift_zeros=self.shift_zeros)
         observed_X_sq = observed.sum()
