@@ -2262,7 +2262,8 @@ class MultipleResponseTable(object):
                                        rownames=[row_name],
                                        colnames=[col_name])
                 if shift_zeros:
-                    crosstab = crosstab.reindex(columns=[0, 1]).fillna(0)
+                    crosstab = crosstab.reindex(columns=[0, 1],
+                                                index=[0, 1]).fillna(0)
                     crosstab = _shift_zeros(crosstab)
                 column_crosstabs[col_name] = crosstab
             row_crosstab = pd.concat(column_crosstabs, axis=1,
