@@ -2129,7 +2129,9 @@ class MultipleResponseTable(object):
                                    multiple_response_column)
             if shift_zeros:
                 # reindex in case one option is never selected
-                crosstab = crosstab.reindex(columns=[0, 1]).fillna(0)
+                srcv_labels = single_response_factor.labels
+                crosstab = (crosstab.reindex(columns=[0, 1],
+                                             index=srcv_labels).fillna(0))
                 crosstab = _shift_zeros(crosstab)
             item_response_pieces[c] = crosstab
 
