@@ -2285,7 +2285,8 @@ class MultipleResponseTable(object):
     @classmethod
     def _chi2s_for_SPMI_item_response_table(cls,
                                             rows_factor,
-                                            columns_factor):
+                                            columns_factor,
+                                            shift_zeros=False):
         """
         Calc chi-squared stat for each pairing in SPMI item response table.
 
@@ -2295,6 +2296,11 @@ class MultipleResponseTable(object):
             A multiple response factor to use on the rows
         columns_factor : Factor instance
             A multiple response factor to use in the columns
+        shift_zeros : bool
+            If shift_zeros is set to true, we'll check
+            if any cells in each item-response table is zero, and if so 
+            add 0.5 to each cell. This can prevent numerical problems
+            with the chi-squared tests.
 
         Return
         ------
@@ -2327,7 +2333,8 @@ class MultipleResponseTable(object):
         marginal independence for the overall table
         """
         build_table = cls._item_response_table_for_SPMI
-        item_response_table = build_table(rows_factor, columns_factor)
+        item_response_table = build_table(rows_factor, columns_factor,
+                                          shift_zeros=shift_zeros)
         rows_levels = item_response_table.index.levels[0]
         columns_levels = item_response_table.columns.levels[0]
         valid_shape = cls._item_response_tbl_shape_valid(
@@ -2426,7 +2433,8 @@ class MultipleResponseTable(object):
             assessing independence between each pairing of factor levels.
         """
         observed = self._chi2s_for_SPMI_item_response_table(row_factor,
-                                                            column_factor)
+                                                            column_factor,
+                                                shift_zeros=self.shift_zeros)
         chi2_survival_with_1_dof = partial(chi2.sf, df=1)
         p_value_ij = observed.applymap(chi2_survival_with_1_dof)
         p_value_min = p_value_ij.min().min()
@@ -2501,7 +2509,8 @@ class MultipleResponseTable(object):
             sample_columns_factor = Factor(q2_sample, columns_factor_name,
                                            orientation="wide",
                                            multiple_response=True)
-            stat_star = calc_chis(sample_rows_factor, sample_columns_factor)
+            stat_star = calc_chis(sample_rows_factor, sample_columns_factor,
+                                  shift_zeros=self.shift_zeros)
             X_sq_S = stat_star.sum().sum()
             X_sq_S_star.append(X_sq_S)
             X_sq_S_ij_star.append(stat_star)
@@ -2518,7 +2527,8 @@ class MultipleResponseTable(object):
                                        orientation="wide",
                                        multiple_response=True)
         observed = calc_chis(observed_rows_factor,
-                                observed_columns_factor)
+                                observed_columns_factor,
+                             shift_zeros=self.shift_zeros)
         observed_X_sq_S = observed.sum().sum()
         p_value_ij = observed.applymap(chi2_survival_with_1_dof)
         p_value_min = p_value_ij.min().min()
@@ -2575,7 +2585,8 @@ class MultipleResponseTable(object):
                   76, 221-230, 1981.
         """
         observed = self._chi2s_for_SPMI_item_response_table(row_factor,
-                                                            column_factor)
+                                                            column_factor,
+                                                shift_zeros=self.shift_zeros)
         W = row_factor.data
         Y = column_factor.data
         I = row_factor.factor_level_count
@@ -2813,7 +2824,8 @@ class MultipleResponseTable(object):
         sum_Di_HGVGH_eigen_sq = (Di_HGVGH_eigen ** 2).sum()
         calculate_chis = self._chi2s_for_MMI_item_response_table
         observed = calculate_chis(single_response_factor,
-                                  multiple_response_factor)
+                                  multiple_response_factor,
+                                  shift_zeros=self.shift_zeros)
         observed_X_sq = observed.sum()
         rows_by_columns = ((r - 1) * c)
         X_sq_S_rs2 = rows_by_columns * observed_X_sq / sum_Di_HGVGH_eigen_sq
