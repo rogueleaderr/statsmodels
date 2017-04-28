@@ -1561,9 +1561,15 @@ class MultipleResponseTable(object):
         The factor or factors containing data that you intend to have on the
         columns (i.e. the y axis) of the contingency table.
     deduplication_padding : str
-        Our tables don't deal well with duplicated index / column labels so we automatically
-        add a padding character / string to duplicated names to make them unique. Defaults to
-        the ' (i.e. "prime") character but you can pass any character to use instead.
+        Our tables don't deal well with duplicated index / column labels so 
+        we automatically add a padding character / string to duplicated 
+        names to make them unique. Defaults to the ' (i.e. "prime") character 
+        but you can pass any character to use instead.
+    shift_zeros : bool
+        If shift_zeros is set to true, as we build item-response sub-tables,
+        we'll check if any cells in each item-response table is zero, and if so 
+        add 0.5 to each cell. This can prevent numerical problems
+        with the chi-squared tests.
 
     Attributes
     ----------
@@ -1622,7 +1628,8 @@ class MultipleResponseTable(object):
 
     def __init__(self,
                  row_factors, column_factors,
-                 deduplication_padding=DEFAULT_DEDUPLICATION_PADDING):
+                 deduplication_padding=DEFAULT_DEDUPLICATION_PADDING,
+                 shift_zeros=False):
         validate = self._extract_and_validate_factors
         padding = deduplication_padding
         validated_factors = validate(column_factors, row_factors,
@@ -1631,6 +1638,7 @@ class MultipleResponseTable(object):
         self.row_factors = [row_factor,]
         self.column_factors = [column_factor,]
         self.table = self.table_from_factors(row_factors, column_factors)
+        self.shift_zeros = shift_zeros
 
     def __str__(self):
         return self.__unicode__()
@@ -2047,7 +2055,8 @@ class MultipleResponseTable(object):
 
     @staticmethod
     def _item_response_table_for_MMI(single_response_factor,
-                                     multiple_response_factor):
+                                     multiple_response_factor,
+                                     shift_zeros=False):
         """
         Build item-response table between single and multiple response vars
 
@@ -2059,6 +2068,11 @@ class MultipleResponseTable(object):
         multiple_response_factor : Factor instance
             Factor to use in the columns. Must be a multiple
             response variable, i.e. "choose all that apply".
+        shift_zeros : bool
+            If shift_zeros is set to true, we'll check
+            if any cells in each item-response table is zero, and if so 
+            add 0.5 to each cell. This can prevent numerical problems
+            with the chi-squared tests.
 
         Return
         ------
@@ -2113,6 +2127,10 @@ class MultipleResponseTable(object):
             multiple_response_column = joint_dataframe.iloc[:, column_position]
             crosstab = pd.crosstab(single_response_column,
                                    multiple_response_column)
+            if shift_zeros:
+                # reindex in case one option is never selected
+                crosstab = crosstab.reindex(columns=[0, 1]).fillna(0)
+                crosstab = _shift_zeros(crosstab)
             item_response_pieces[c] = crosstab
 
         names = ["multiple_response_level", "selected?"]
@@ -2121,7 +2139,7 @@ class MultipleResponseTable(object):
         return item_response_table
 
     @classmethod
-    def _chi2s_for_MMI_item_response_table(cls, srcv, mrcv):
+    def _chi2s_for_MMI_item_response_table(cls, srcv, mrcv, shift_zeros=False):
         """
         Calc chi-squared stat for pairings in the MMI item-response table.
 
@@ -2131,6 +2149,11 @@ class MultipleResponseTable(object):
             A single response categorical Factor
         mrcv : Factor instance
             A multiple response categorical Factor
+        shift_zeros : bool
+            If shift_zeros is set to true, we'll check
+            if any cells in each item-response table is zero, and if so 
+            add 0.5 to each cell. This can prevent numerical problems
+            with the chi-squared tests.
 
         Return
         ------
@@ -2159,7 +2182,8 @@ class MultipleResponseTable(object):
         statistics we can investigate mutual marginal independence
         for the overall table.
         """
-        item_response_table = cls._item_response_table_for_MMI(srcv, mrcv)
+        item_response_table = cls._item_response_table_for_MMI(srcv, mrcv,
+                                                        shift_zeros=shift_zeros)
         mmi_chi_squared_by_cell = pd.Series(index=mrcv.labels)
         rows_levels = item_response_table.index
         columns_levels = item_response_table.columns.levels[0]
@@ -2186,7 +2210,8 @@ class MultipleResponseTable(object):
         return mmi_chi_squared_by_cell
 
     @staticmethod
-    def _item_response_table_for_SPMI(rows_factor, columns_factor):
+    def _item_response_table_for_SPMI(rows_factor, columns_factor,
+                                      shift_zeros=False):
         """
         Build full item-response table between two multiple response vars
 
@@ -2196,6 +2221,11 @@ class MultipleResponseTable(object):
             Multiple response factor instance to use on the rows
         columns_factor : Factor instance
             Multiple fesponse factor instance to use in the columns
+        shift_zeros : bool
+            If shift_zeros is set to true, we'll check
+            if any cells in each item-response table is zero, and if so 
+            add 0.5 to each cell. This can prevent numerical problems
+            with the chi-squared tests.
 
         Return
         ------
@@ -2231,6 +2261,9 @@ class MultipleResponseTable(object):
                 crosstab = pd.crosstab(index=rows, columns=columns,
                                        rownames=[row_name],
                                        colnames=[col_name])
+                if shift_zeros:
+                    crosstab = crosstab.reindex(columns=[0, 1]).fillna(0)
+                    crosstab = _shift_zeros(crosstab)
                 column_crosstabs[col_name] = crosstab
             row_crosstab = pd.concat(column_crosstabs, axis=1,
                                      names=["column_levels", "selected?"])
@@ -2626,7 +2659,8 @@ class MultipleResponseTable(object):
         """
         calc_chis = self._chi2s_for_MMI_item_response_table
         mmi_pairwise_chis = calc_chis(single_response_factor,
-                                      multiple_response_factor)
+                                      multiple_response_factor,
+                                      shift_zeros=self.shift_zeros)
         c = len(multiple_response_factor.labels)
         r = len(single_response_factor.labels)
 
