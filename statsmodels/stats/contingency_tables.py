@@ -2113,7 +2113,8 @@ class MultipleResponseTable(object):
             renamings = {id_var: "observation_id", "value": "selected",
                          "factor_level": "single_response_level"}
             single_response_melted = (pd.melt(srcv_data.reset_index(),
-                                              id_vars=id_var)
+                                              id_vars=id_var,
+                                              var_name='factor_level')
                                       .rename(columns=renamings))
             selected = single_response_melted.selected == 1
             single_response_melted = single_response_melted[selected]
@@ -3134,7 +3135,7 @@ class Factor(object):
             raise TypeError("Factor is already narrow")
         solid_df = self.data
         index_name = solid_df.index.name
-        melted = pd.melt(solid_df.reset_index(), id_vars=index_name)
+        melted = pd.melt(solid_df.reset_index(), id_vars=index_name, var_name='factor_level')
         melted = melted.rename(columns={index_name: "observation_id"})
         narrowed = melted.sort_values("observation_id")
         narrow_data = narrowed.reset_index(drop=True)
